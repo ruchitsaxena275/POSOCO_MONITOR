@@ -1,8 +1,7 @@
 import time
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-from webdriver_manager.chrome import ChromeDriverManager
+import streamlit as st
+import requests
+from bs4 import BeautifulSoup
 from twilio.rest import Client
 
 # ==============================
@@ -11,47 +10,68 @@ from twilio.rest import Client
 account_sid = "YOUR_TWILIO_SID"
 auth_token = "YOUR_TWILIO_AUTH"
 whatsapp_from = "whatsapp:+14155238886"   # Twilio Sandbox number
-whatsapp_to = "whatsapp:+91XXXXXXXXXX"   # Your number (must join sandbox first)
+whatsapp_to = "whatsapp:+918005737127"   # Your WhatsApp number
 client = Client(account_sid, auth_token)
 
 # ==============================
-# SELENIUM CONFIG
+# POSOCO CONFIG
 # ==============================
-options = webdriver.ChromeOptions()
-options.add_argument("--start-maximized")
+URL = "YOUR_POSOCO_TABLE_URL"
 
-# ATTACH to an already logged-in Chrome session (so you don’t need to login again)
-options.debugger_address = "127.0.0.1:9222"
+# Optional: If POSOCO requires login, paste cookies here (from browser DevTools)
+COOKIES = {
+    # "sessionid": "xxxx",
+    # "csrftoken": "xxxx"
+}
 
-driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+# ==============================
+# STREAMLIT UI
+# ==============================
+st.set_page_config(page_title="POSOCO Monitor", layout="wide")
+st.title("🔍 POSOCO Portal Monitor")
 
-# POSOCO page (you must already be logged in on that Chrome session)
-url = "YOUR_POSOCO_PORTAL_URL"
-driver.get(url)
+placeholder = st.empty()
+status_box = st.empty()
 
-print("Monitoring POSOCO page...")
+if "last_seen" not in st.session_state:
+    st.session_state.last_seen = None
 
-last_seen = None
+def send_whatsapp(msg):
+    message = client.messages.create(
+        from_=whatsapp_from,
+        body=msg,
+        to=whatsapp_to
+    )
+    return message.sid
 
+def fetch_table():
+    resp = requests.get(URL, cookies=COOKIES, timeout=20)
+    resp.raise_for_status()
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    # Grab the table body (adjust selector as per page structure)
+    table = soup.select_one("table.dataTable tbody")
+    if table:
+        return table.get_text(strip=True)
+    return None
+
+# ==============================
+# MONITOR LOOP (polling refresh every 60s)
+# ==============================
 while True:
     try:
-        # Example: fetch the first row of Code Issue column
-        element = driver.find_element(By.CSS_SELECTOR, "table.dataTable tbody tr td:nth-child(4)")
-        current_text = element.text.strip()
-
-        if last_seen != current_text:
-            print(f"[UPDATE] New entry found: {current_text}")
-            last_seen = current_text
-
-            # Send WhatsApp alert
-            msg = client.messages.create(
-                from_=whatsapp_from,
-                to=whatsapp_to,
-                body=f"🚨 POSOCO Update Detected:\n{current_text}"
-            )
-            print(f"WhatsApp sent (SID: {msg.sid})")
+        current_text = fetch_table()
+        if current_text:
+            if st.session_state.last_seen != current_text:
+                status_box.success("⚡ Change detected in POSOCO table!")
+                send_whatsapp("🚨 POSOCO Outage Table Updated:\n\n" + current_text[:1500])
+                st.session_state.last_seen = current_text
+            else:
+                status_box.info("✅ No change detected yet...")
+        else:
+            status_box.warning("⚠️ Table not found, check selector or login.")
 
     except Exception as e:
-        print(f"Error: {e}")
+        status_box.error(f"Error: {e}")
 
-    time.sleep(30)  # check every 30 sec
+    time.sleep(60)  # refresh every 60 sec
