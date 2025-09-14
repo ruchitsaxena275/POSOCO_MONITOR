@@ -16,7 +16,7 @@ client = Client(account_sid, auth_token)
 # ==============================
 # POSOCO CONFIG
 # ==============================
-URL = "YOUR_POSOCO_TABLE_URL"
+URL = "https://oms.nrldc.in/posoco/shutdown?action=otherlist&list=true"
 
 # Optional: If POSOCO requires login, paste cookies here (from browser DevTools)
 COOKIES = {
